@@ -1,41 +1,49 @@
 import scala.meta._
 
-class CallGraphVisitor extends Traverser {
-  private var currentClass: Option[String] = None
-  private var currentMethod: Option[String] = None
+/**
+ * Visitor for analyzing method calls in Scala AST
+ * Tracks method call relationships and builds call chains
+ */
+class CallGraphVisitor {
   private var callChain = List.empty[(String, String)]
+  private var currentObject: Option[String] = None
+  private var currentMethod: Option[String] = None
 
-  override def apply(tree: Tree): Unit = {
-    tree match {
-      case Defn.Object(_, name, _) =>
-        currentClass = Some(name.value)
-        super.apply(tree)
-        
-      case Defn.Def(_, name, _, _, _, body) =>
-        val methodName = s"${currentClass.getOrElse("")}.${name.value}"
-        val prevMethod = currentMethod
-        currentMethod = Some(methodName)
-        super.apply(body)
-        currentMethod = prevMethod
-        
-      case Term.Apply(Term.Select(qual, name), _) =>
-        currentMethod.foreach { caller =>
-          val callee = s"${qual}.${name.value}"
-          if (isRelevantCall(callee)) {
-            callChain = (caller, callee) :: callChain
-          }
+  def apply(tree: Tree): Unit = {
+    tree.traverse {
+      case obj: Defn.Object =>
+        currentObject = Some(obj.name.value)
+
+      case defn: Defn.Def =>
+        val methodName = currentObject match {
+          case Some(objName) => s"$objName.${defn.name.value}"
+          case None => defn.name.value
         }
-        super.apply(tree)
-        
-      case _ => super.apply(tree)
+        currentMethod = Some(methodName)
+
+      case Term.Apply(Term.Select(qual, name), _) =>
+        val callerName = currentMethod.getOrElse("")
+        val calleeName = s"${qual.toString}.${name.value}"
+        if (callerName.nonEmpty && isTrackedMethod(calleeName)) {
+          callChain = (callerName, calleeName) :: callChain
+        }
     }
   }
 
-  private def isRelevantCall(methodName: String): Boolean = {
-    methodName.startsWith("DataProcessor.") ||
-    methodName.startsWith("DataReader.") ||
-    methodName.startsWith("StorageReader.")
+  private def isTrackedMethod(methodName: String): Boolean = {
+    val trackedPrefixes = Set(
+      "DataProcessor.",
+      "DataReader.",
+      "StorageReader."
+    )
+    trackedPrefixes.exists(methodName.startsWith)
   }
 
   def getCallChain: List[(String, String)] = callChain.reverse
+
+  def clear(): Unit = {
+    callChain = List.empty
+    currentObject = None
+    currentMethod = None
+  }
 }

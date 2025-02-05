@@ -1,69 +1,31 @@
+/**
+ * Core component for extracting and generating call graphs from Scala source code.
+ * This file contains the main logic for parsing source files and building the call graph.
+ */
+
 import scala.meta._
 import java.io.{File, PrintWriter}
 import scala.util.{Try, Success, Failure}
+import model.{MethodNode, CallEdge}
 
-// Define a simple representation for a call graph node
+/**
+ * Represents a method node in the call graph
+ * @param name The fully qualified method name
+ * @param file Source file containing the method
+ * @param params List of parameter types
+ * @param returnType Optional return type
+ */
 case class MethodNode(name: String, file: String, params: List[String] = Nil, returnType: Option[String] = None)
+
+/**
+ * Represents a directed edge between two method nodes in the call graph
+ */
 case class CallEdge(caller: MethodNode, callee: MethodNode)
 
-// Call graph data structure with thread-safe operations
-object CallGraph {
-  private var nodes: Set[MethodNode] = Set.empty
-  private var edges: Set[CallEdge] = Set.empty
-  
-  private var methodPrefixes: Set[String] = Set(
-    "DataProcessor.", 
-    "DataReader.", 
-    "StorageReader."
-  )
-  
-  def updateMethodPrefixes(prefixes: Set[String]): Unit = synchronized {
-    methodPrefixes = prefixes
-  }
-
-  // Make addEdge public
-  def addEdge(caller: MethodNode, callee: MethodNode): Unit = synchronized {
-    nodes += caller
-    nodes += callee
-    edges += CallEdge(caller, callee)
-  }
-
-  def toDot: String = {
-    val relevantNodes = nodes.filter(n => 
-      methodPrefixes.exists(n.name.startsWith) ||
-      n.name.startsWith("df.") ||
-      n.name.startsWith("sparkSession.")
-    )
-    
-    val fileGroups = relevantNodes.groupBy(_.file).filter(_._1.nonEmpty)
-    
-    val subgraphs = fileGroups.map { case (file, fileNodes) =>
-      val nodeStr = fileNodes.map { n =>
-        s""""${n.name}""""
-      }.mkString("\n    ", ";\n    ", ";")
-      
-      s"""  subgraph "cluster_${file.replace('.', '_')}" {
-         |    label = "$file";
-         |    style = filled;
-         |    color = lightgrey;
-         |    $nodeStr
-         |  }""".stripMargin
-    }.mkString("\n")
-
-    val edgeStr = edges.map { e =>
-      s""""${e.caller.name}" -> "${e.callee.name}""""
-    }.mkString("\n  ", ";\n  ", ";")
-    
-    s"""digraph CallGraph {
-       |  compound = true;
-       |  node [style=filled,color=white];
-       |$subgraphs
-       |  // Edges
-       |  $edgeStr
-       |}""".stripMargin
-  }
-}
-
+/**
+ * Main class for extracting call graphs from Scala source files
+ * Handles file traversal, AST parsing, and graph construction
+ */
 class CallGraphExtractor {
   private val visitor = new CallGraphVisitor()
   private val dfAnalyzer = new DataFrameAnalyzer()
@@ -127,12 +89,24 @@ class CallGraphExtractor {
           )
         }
         
-        // Process DataFrame operations
-        dfAnalyzer.analyzeOperations(tree).foreach { case (prev, next) =>
+        // Process DataFrame operations with enhanced lineage
+        val lineages = dfAnalyzer.analyzeOperations(tree)
+        dfAnalyzer.getOperationEdges(lineages).foreach { case (prev, next) =>
           CallGraph.addEdge(
             MethodNode(s"df.$prev", fileName),
             MethodNode(s"df.$next", fileName)
           )
+        }
+        
+        // Add lineage metadata to nodes
+        lineages.foreach { lineage =>
+          lineage.operationChain.foreach { op =>
+            val node = MethodNode(s"df.${op.name}", fileName)
+            CallGraph.addNodeMetadata(node, Map(
+              "sourceColumns" -> op.sourceColumns.mkString(","),
+              "condition" -> op.condition.getOrElse("")
+            ))
+          }
         }
         
       case error: Parsed.Error => 
@@ -208,6 +182,11 @@ class CallGraphExtractor {
     }
   }
 }
+
+/**
+ * Entry point for the call graph extraction tool
+ * Usage: CallGraphExtractor <source-dir> <output-dot-file>
+ */
 object CallGraphExtractor extends App {
   val extractor = new CallGraphExtractor()
   

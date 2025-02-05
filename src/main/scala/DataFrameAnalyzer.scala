@@ -62,9 +62,88 @@ class DataFrameAnalyzer {
     }.toSet
   }
 
+  private def extractColumns(args: List[Term]): Set[String] = {
+    args.flatMap {
+      case Lit.String(col) => Some(col)
+      case Term.Apply(_, List(Lit.String(col))) => Some(col)
+      case _ => None
+    }.toSet
+  }
+
   private def extractCondition(args: List[Term]): Option[String] = {
     args.collectFirst {
-      case Lit.String(cond) => cond
+      case Lit.String(condition) => condition
     }
+  }
+
+  private def extractOperations(tree: Tree): List[DataFrameOperation] = {
+    var operations = List.empty[DataFrameOperation]
+    
+    tree.traverse {
+      case Term.Apply(Term.Select(qual, name), args) =>
+        // Handle method chaining
+        val methodName = name.value
+        if (isDataFrameOperation(methodName)) {
+          val operation = methodName match {
+            case "select" | "groupBy" =>
+              DataFrameOperation(methodName, extractColumns(args))
+            
+            case "where" | "filter" =>
+              DataFrameOperation(methodName, condition = extractCondition(args))
+            
+            case "agg" =>
+              DataFrameOperation(methodName, targetColumns = extractAggregations(args))
+            
+            case "join" =>
+              DataFrameOperation(methodName, 
+                sourceColumns = extractJoinColumns(args),
+                condition = extractJoinType(args))
+            
+            case other => DataFrameOperation(other)
+          }
+          operations = operation :: operations
+        }
+    }
+    operations.reverse
+  }
+
+  private def extractAggregations(args: List[Term]): Set[String] = {
+    args.flatMap {
+      case Term.Apply(Term.Name(func), List(Lit.String(col))) =>
+        // Handle function calls like sum("col1")
+        Some(s"""$func("$col")""")
+      case Term.Apply(Term.Name("Map"), mapArgs) =>
+        // Handle Map-style aggregations
+        mapArgs.flatMap {
+          case Term.Apply(Term.Name("->"), List(Lit.String(col), Lit.String(agg))) =>
+            Some(s"$col -> $agg")
+          case _ => None
+        }
+      case _ => None
+    }.toSet
+  }
+
+  private def extractJoinColumns(args: List[Term]): Set[String] = {
+    args.flatMap {
+      case Lit.String(col) => Some(col)
+      case Term.Apply(_, joinCols) => 
+        joinCols.collect { case Lit.String(col) => col }
+      case _ => None
+    }.toSet
+  }
+
+  private def extractJoinType(args: List[Term]): Option[String] = {
+    args.collectFirst {
+      case Lit.String(joinType) if Set("inner", "outer", "left", "right").contains(joinType) => 
+        joinType
+    }
+  }
+
+  private def isDataFrameOperation(name: String): Boolean = {
+    Set(
+      "select", "where", "filter", "groupBy", "agg", "join", 
+      "orderBy", "sort", "distinct", "limit", "union", 
+      "intersect", "except", "withColumn", "drop"
+    ).contains(name)
   }
 }

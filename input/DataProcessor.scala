@@ -10,6 +10,6 @@ object DataProcessor {
     df.select("col1", "col2")
       .where("col1 > 0")
       .groupBy("col2")
-      .agg(Map("col1" -> "sum"))
+      .agg(sum("col1"))
   }
 }

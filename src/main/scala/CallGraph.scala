@@ -29,6 +29,10 @@ object CallGraph {
     nodeMetadata += (node -> (nodeMetadata.getOrElse(node, Map.empty) ++ metadata))
   }
 
+  def getEdges: Set[CallEdge] = synchronized {
+    edges
+  }
+
   def toDot: String = {
     val relevantNodes = nodes.filter(n => 
       methodPrefixes.exists(n.name.startsWith) ||

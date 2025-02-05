@@ -1,6 +1,9 @@
 /**
  * Core component for extracting and generating call graphs from Scala source code.
  * This file contains the main logic for parsing source files and building the call graph.
+ * 
+ * The extractor integrates with DataFrameAnalyzer to collect DataFrame operation lineage
+ * which is later used by DataFrameApiGenerator to generate equivalent DataFrame API code.
  */
 
 import scala.meta._
@@ -50,6 +53,11 @@ class CallGraphExtractor {
   }
 
   // Add isDataFrameOp to DataFrameAnalyzer
+  /**
+   * Identifies DataFrame operations that should be tracked for lineage
+   * This set of operations is used in conjunction with DataFrameAnalyzer
+   * to build the complete operation chain for API generation
+   */
   private def isDataFrameOp(name: String): Boolean = {
     Set("select", "where", "groupBy", "agg").contains(name)
   }
@@ -89,7 +97,8 @@ class CallGraphExtractor {
           )
         }
         
-        // Process DataFrame operations with enhanced lineage
+        // Process DataFrame operations with enhanced lineage tracking
+        // This lineage information is used by DataFrameApiGenerator to reconstruct the DataFrame operations
         val lineages = dfAnalyzer.analyzeOperations(tree)
         dfAnalyzer.getOperationEdges(lineages).foreach { case (prev, next) =>
           CallGraph.addEdge(
@@ -98,7 +107,7 @@ class CallGraphExtractor {
           )
         }
         
-        // Add lineage metadata to nodes
+        // Add lineage metadata to nodes for API generation
         lineages.foreach { lineage =>
           lineage.operationChain.foreach { op =>
             val node = MethodNode(s"df.${op.name}", fileName)

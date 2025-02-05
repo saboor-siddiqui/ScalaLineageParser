@@ -10,6 +10,8 @@ case class DataFrameOperation(
 case class DataFrameLineage(
   operationChain: List[DataFrameOperation],
   sourceDataFrame: Option[String] = None,
+  sourceType: Option[String] = None,
+  sourcePath: Option[String] = None,
   methodName: String,
   fileName: String
 )

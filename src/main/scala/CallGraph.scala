@@ -69,26 +69,20 @@ object CallGraph {
     // Handle edges with special case for DataFrame operations
     val edgeStr = edges.map { e =>
       if (e.caller.name.startsWith("df.") && e.callee.name.startsWith("df.")) {
-        // Reverse DataFrame operation edges to show execution order
+        // For DataFrame operations, maintain the execution order
         s""""${e.callee.name}" -> "${e.caller.name}""""
       } else {
-        // Keep original direction for method calls
+        // For other method calls, keep original direction
         s""""${e.caller.name}" -> "${e.callee.name}""""
       }
     }.mkString("\n  ", ";\n  ", ";")
-    
+
+    // Add the missing closing brace here
     s"""digraph CallGraph {
        |  compound = true;
        |  node [style=filled,color=white];
        |$subgraphs
-       |  // Edges
-       |  $edgeStr
+       |$edgeStr
        |}""".stripMargin
-  }
-
-  def clear(): Unit = synchronized {
-    nodes = Set.empty
-    edges = Set.empty
-    nodeMetadata = Map.empty
   }
 }

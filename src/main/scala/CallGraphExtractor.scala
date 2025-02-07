@@ -98,7 +98,6 @@ class CallGraphExtractor {
         }
         
         // Process DataFrame operations with enhanced lineage tracking
-        // This lineage information is used by DataFrameApiGenerator to reconstruct the DataFrame operations
         val lineages = dfAnalyzer.analyzeOperations(tree)
         dfAnalyzer.getOperationEdges(lineages).foreach { case (prev, next) =>
           CallGraph.addEdge(

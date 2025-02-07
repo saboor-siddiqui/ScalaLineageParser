@@ -10,15 +10,7 @@ import model.DataFrameLineage
 object LineageTransformer {
   private val extractor = new CallGraphExtractor()
   private val analyzer = new DataFrameAnalyzer()
-  
-  /**
-   * Processes Scala source files from the input directory and generates
-   * equivalent DataFrame API code.
-   *
-   * @param inputDir Path to the directory containing Scala source files
-   * @return Generated DataFrame API code as a string
-   * @throws IllegalArgumentException if the input directory is invalid
-   */
+
   def transform(inputDir: String): String = {
     val directory = new File(inputDir)
     if (!directory.exists || !directory.isDirectory) {
@@ -57,7 +49,8 @@ object LineageTransformer {
 
     Try {
       processRecursively(directory)
-      DataFrameApiGenerator.generate(lineages)
+      val code = DataFrameApiGenerator.generate(lineages)
+      code.replaceAll("\\s+", " ").trim // Compact the output
     } match {
       case Success(code) => code
       case Failure(e) => 

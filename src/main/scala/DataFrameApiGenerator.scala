@@ -3,7 +3,18 @@ import model.{DataFrameLineage, DataFrameOperation}
 object DataFrameApiGenerator {
   def generate(lineages: List[DataFrameLineage]): String = {
     lineages.map { lineage =>
-      val sourceRead = lineage.sourceDataFrame.getOrElse("df")
+      println(s"\nProcessing method: ${lineage.methodName}")
+      
+      val sourceRead = lineage.operationChain.headOption.flatMap(_.dfSource) match {
+        case Some(source) =>
+          println(s"Using original source: $source")
+          source
+        case None =>
+          println("No source found, using default sparkSession.read chain")
+          "sparkSession.read\n      .option(\"mergeSchema\", \"true\")\n      .parquet(path)"
+      }
+      
+      println(s"Final source for ${lineage.methodName}: $sourceRead")
       val operations = lineage.operationChain.map(operationToCode)
       
       s"""// Method: ${lineage.methodName}\n$sourceRead${operations.mkString}"""

@@ -22,7 +22,7 @@ object DataProcessor {
   }
 
   def aggregateByCategories(df: DataFrame): DataFrame = {
-   myDf.groupBy("category", "sub_category")
+    df.groupBy("category", "sub_category")
        .agg(
          sum("amount").as("total_amount"),
          count("transaction_id").as("transaction_count"),
@@ -35,10 +35,10 @@ object DataProcessor {
        )
        .filter(col("transaction_count") > 5)
        .orderBy(desc("total_amount"))
- }
+  }
 
   def newMethodAdded(df: DataFrame): DataFrame = {
-    thirdDf.select("col1", "col2", "col3")
+    df.select("col1", "col2", "col3")
       .groupBy("category", "sub_category")
       .agg(
         sum("amount").as("total_amount"),

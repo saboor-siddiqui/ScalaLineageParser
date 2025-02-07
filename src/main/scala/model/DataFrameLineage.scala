@@ -4,7 +4,8 @@ case class DataFrameOperation(
   name: String,
   sourceColumns: Set[String] = Set.empty,
   targetColumns: Set[String] = Set.empty,
-  condition: Option[String] = None
+  condition: Option[String] = None,
+  dfSource: Option[String] = None
 )
 
 case class DataFrameLineage(

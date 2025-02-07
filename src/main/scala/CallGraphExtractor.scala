@@ -1,7 +1,7 @@
 /**
  * Core component for extracting and generating call graphs from Scala source code.
  * This file contains the main logic for parsing source files and building the call graph.
- * 
+ *
  * The extractor integrates with DataFrameAnalyzer to collect DataFrame operation lineage
  * which is later used by DataFrameApiGenerator to generate equivalent DataFrame API code.
  */
@@ -32,7 +32,7 @@ case class CallEdge(caller: MethodNode, callee: MethodNode)
 class CallGraphExtractor {
   private val visitor = new CallGraphVisitor()
   private val dfAnalyzer = new DataFrameAnalyzer()
-  
+
   // Add missing variable declarations
   private var currentObject: Option[String] = None
   private var currentMethod: Option[MethodNode] = None
@@ -43,13 +43,13 @@ class CallGraphExtractor {
   // Add missing method definitions
   private def isMainMethod(qual: String, method: String): Boolean = {
     (qual == "DataProcessor" && Set("processData", "transformData").contains(method)) ||
-    (qual == "DataReader" && method == "readTable") ||
-    (qual == "StorageReader" && method == "readParquetData")
+      (qual == "DataReader" && method == "readTable") ||
+      (qual == "StorageReader" && method == "readParquetData")
   }
 
   private def isSparkOp(qual: String, method: String): Boolean = {
-    (qual.contains("sparkSession") || qual.contains("read")) && 
-    Set("read", "option", "parquet").contains(method)
+    (qual.contains("sparkSession") || qual.contains("read")) &&
+      Set("read", "option", "parquet").contains(method)
   }
 
   // Add isDataFrameOp to DataFrameAnalyzer
@@ -82,42 +82,92 @@ class CallGraphExtractor {
     processRecursively(dir)
   }
 
+  private var dfVariables = Map.empty[String, String] // Track DataFrame assignments
+  private var currentDfSource: Option[String] = None // Track current DataFrame source
+
   def processFile(file: File): Try[Unit] = Try {
     val source = scala.io.Source.fromFile(file).mkString
     val fileName = file.getName
-    
+
     source.parse[Source] match {
-      case Parsed.Success(tree) => 
-        // Process method calls
+      case Parsed.Success(tree) =>
+        println(s"\nProcessing file: $fileName")
+
+        // First pass: Track DataFrame sources and assignments
+        tree.traverse {
+          case Defn.Val(_, List(Pat.Var(Term.Name(name))), _, rhs) =>
+            val source = rhs match {
+              case Term.Apply(Term.Select(qual, Term.Name("readTable")), args) =>
+                // Track the source DataFrame from readTable
+                currentDfSource = Some("rawData")
+                dfVariables.getOrElse("sparkSession.read", "sparkSession.read\n      .option(\"mergeSchema\", \"true\")\n      .parquet(path)")
+              case Term.Apply(Term.Select(qual, _), _) =>
+                dfVariables.getOrElse(qual.syntax, qual.syntax)
+              case Term.Name(n) => dfVariables.getOrElse(n, n)
+              case _ => name
+            }
+            dfVariables = dfVariables + (name -> source)
+            println(s"Tracked DataFrame: $name -> $source")
+
+          case Defn.Def(_, name, _, _, _, _) =>
+            // Reset DataFrame source for new method
+            currentDfSource = None
+
+          case Term.Apply(Term.Select(qual, name), _) if name.value == "readTable" =>
+            // Track the source DataFrame from readTable
+            currentDfSource = Some("rawData")
+            dfVariables = dfVariables + ("rawData" -> "sparkSession.read")
+        }
+
+        // Second pass: Process method calls with resolved DataFrame sources
         visitor.apply(tree)
-        visitor.getCallChain.foreach { case (caller, callee) =>
-          CallGraph.addEdge(
+        val uniqueCalls = visitor.getCallChain.toSet // Remove duplicates
+        uniqueCalls.foreach { case (caller, callee) =>
+          val resolvedCallee = dfVariables.foldLeft(callee) { case (acc, (name, source)) =>
+            if (acc.contains(name)) {
+              acc.replace(name, source)
+            } else acc
+          }
+
+          // Add edge only if it's a new unique call
+          val edge = CallEdge(
             MethodNode(caller, fileName),
-            MethodNode(callee, fileName)
+            MethodNode(resolvedCallee, fileName)
           )
-        }
-        
-        // Process DataFrame operations with enhanced lineage tracking
-        val lineages = dfAnalyzer.analyzeOperations(tree)
-        dfAnalyzer.getOperationEdges(lineages).foreach { case (prev, next) =>
-          CallGraph.addEdge(
-            MethodNode(s"df.$prev", fileName),
-            MethodNode(s"df.$next", fileName)
-          )
-        }
-        
-        // Add lineage metadata to nodes for API generation
-        lineages.foreach { lineage =>
-          lineage.operationChain.foreach { op =>
-            val node = MethodNode(s"df.${op.name}", fileName)
-            CallGraph.addNodeMetadata(node, Map(
-              "sourceColumns" -> op.sourceColumns.mkString(","),
-              "condition" -> op.condition.getOrElse("")
-            ))
+          if (!CallGraph.getEdges.contains(edge)) {
+            println(s"Found call: $caller -> $resolvedCallee")
+            CallGraph.addEdge(
+              MethodNode(caller, fileName),
+              MethodNode(resolvedCallee, fileName)
+            )
           }
         }
-        
-      case error: Parsed.Error => 
+
+        // Process DataFrame operations with source tracking
+        try {
+          val lineages = dfAnalyzer.analyzeOperations(tree)
+          var previousOp: Option[String] = None
+
+          lineages.foreach { lineage =>
+            lineage.operationChain.foreach { op =>
+              val dfSource = currentDfSource.getOrElse("df")
+              val currentOp = s"$dfSource.${op.name}"
+
+              previousOp.foreach { prev =>
+                CallGraph.addEdge(
+                  MethodNode(prev, fileName),
+                  MethodNode(currentOp, fileName)
+                )
+              }
+              previousOp = Some(currentOp)
+            }
+          }
+        } catch {
+          case e: Exception =>
+            println(s"Warning: DataFrame analysis failed for $fileName: ${e.getMessage}")
+        }
+
+      case error: Parsed.Error =>
         throw new RuntimeException(s"Failed to parse $fileName: ${error.message}")
     }
   }
@@ -126,7 +176,7 @@ class CallGraphExtractor {
     tree.traverse {
       case obj: Defn.Object =>
         currentObject = Some(obj.name.value)
-        
+
       case defn: Defn.Def =>
         val methodName = currentObject match {
           case Some(objName) => s"$objName.${defn.name.value}"
@@ -141,7 +191,7 @@ class CallGraphExtractor {
       case Term.Apply(Term.Select(qual, name), args) =>
         val methodName = name.value
         val qualName = qual.toString
-        
+
         if (isMainMethod(qualName, methodName)) {
           val callee = MethodNode(s"$qualName.$methodName", fileName)
           methodStack.headOption.foreach { caller =>
@@ -197,7 +247,7 @@ class CallGraphExtractor {
  */
 object CallGraphExtractor extends App {
   val extractor = new CallGraphExtractor()
-  
+
   if (args.length != 2) {
     println("Usage: CallGraphExtractor <source-dir> <output-dot-file>")
     sys.exit(1)

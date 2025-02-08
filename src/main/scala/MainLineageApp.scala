@@ -1,5 +1,6 @@
 import java.io.{File, PrintWriter}
 import scala.util.{Try, Success, Failure}
+import transformer.LineageTransformer
 
 object MainLineageApp {
   def main(args: Array[String]): Unit = {

@@ -1,5 +1,6 @@
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import transformer.LineageTransformer 
 
 /**
  * Test suite for LineageTransformer

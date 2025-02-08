@@ -3,7 +3,8 @@ import org.scalatest.matchers.should.Matchers
 import java.io.{File, PrintWriter}
 import scala.util.{Try, Success, Failure}
 import model.{MethodNode, CallEdge}
-
+import parser.CallGraphExtractor
+import parser.CallGraph
 class CallGraphExtractorTest extends AnyFlatSpec with Matchers {
   
   private def createTempFile(content: String): File = {

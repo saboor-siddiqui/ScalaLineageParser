@@ -1,6 +1,7 @@
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import model.{DataFrameLineage, DataFrameOperation}
+import generator.DataFrameApiGenerator 
 
 class DataFrameApiGeneratorTest extends AnyFlatSpec with Matchers {
   
